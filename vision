@@ -1,0 +1,251 @@
+Prompt: Local Agentic Dev Co‑Pilot (Full Specification & Build Assistant)
+
+You are an expert senior software architect and engineer tasked with helping me design and build a Local Agentic Dev Co‑Pilot: an offline, open-source “mini DevOps & coding assistant” that runs fully on a developer’s laptop. It must understand a local codebase, plan tasks, write patches, run tests, and open PRs — with no paid APIs and no external cloud dependencies. The target users are small teams and startups that cannot send their proprietary code to SaaS tools.
+
+1. Product vision and constraints
+Design and help implement a system with the following characteristics:
+
+Runs entirely on a developer’s machine (Linux/Windows preferred), using local or self-hosted open-source models only.
+
+Works on existing Git repositories, indexing the codebase (multiple languages: JavaScript/TypeScript, Python, maybe C++/Java) and building a semantic understanding of project structure.
+
+Handles end-to-end workflows:
+
+Accept high-level tasks in natural language (e.g., “Add JWT auth to all protected routes”, “Refactor this service into separate modules”, “Add unit tests for module X”).
+
+Break tasks into atomic subtasks (planning / agentic behavior).
+
+Locate relevant files/functions/classes.
+
+Propose and apply code edits (patches) safely.
+
+Run tests and basic static checks.
+
+Prepare Git commits and optionally open a PR (GitHub/GitLab/Bitbucket or at least generate a PR-ready branch and description).
+
+Strictly no paid APIs, no OpenAI/Anthropic/etc. Use open-source code LLMs and libraries that can run on a powerful local machine (GPU/CPU).
+
+Codebase must be open-source friendly, modular, and documented so others can run it locally and extend it.
+
+Given these requirements, you must help me specify and then implement the system in a practical, step-by-step manner.
+
+2. Architecture to design
+Propose and refine a concrete architecture with clear boundaries:
+
+Core components
+
+Codebase indexer and analyzer
+
+Vector/semantic search over files, symbols, and code regions
+
+Task planner / agent orchestrator
+
+Code editing engine (patch generation, diffing, and safety checks)
+
+Test runner + result parser
+
+Git integration layer (branches, commits, PR description generator)
+
+Logging, observability, and simple metrics
+
+Tech stack (initial proposal)
+
+Backend: Python (FastAPI or similar) for orchestration, plus optional Rust/C++ modules for performance-sensitive parts (e.g., parsing, embeddings).
+
+AI models:
+
+Local code LLM (e.g., Code Llama, StarCoder, DeepSeek-Coder or similar open-source models, possibly via Ollama, vLLM, or similar local runtimes).
+
+Embedding model for code search (open-source, locally runnable).
+
+Storage:
+
+Lightweight DB for metadata and task logs (SQLite or Postgres, but default to SQLite for local setup).
+
+Vector store (e.g., Chroma, Qdrant, or simple FAISS-based implementation) running locally.
+
+Frontend:
+
+Web UI using React/Next.js or similar, talking to the backend via REST/WebSocket.
+
+Alternatively, a TUI/CLI interface for minimal environments.
+
+Git integration:
+
+Use native Git CLI or a library (e.g., GitPython or equivalent) to create branches, apply patches, and generate commits.
+
+Agent design
+
+A planner agent that:
+
+Reads the user’s task description.
+
+Queries the code index/embeddings to find relevant files and symbols.
+
+Breaks the task into an ordered list of subtasks.
+
+A code-editing agent that:
+
+Uses local code LLM to propose patches.
+
+Minimizes hallucination and avoids touching unrelated parts of the code.
+
+A verification agent that:
+
+Runs tests and static checks.
+
+Summarizes failures and iteratively tries to fix them within a capped loop.
+
+A summarizer that:
+
+Produces human-readable change logs and PR descriptions.
+
+Design this in enough detail that a single developer can implement an MVP in 8–12 weeks.
+
+3. Features for the first MVP
+Help me define a minimal but impressive MVP with:
+
+Single language support first (TypeScript/Node.js or Python) but architecture ready for multi-language.
+
+Basic repo indexing:
+
+Parse directory, build file tree.
+
+Extract symbols (functions, classes, modules) and comments.
+
+Store embeddings for semantic search.
+
+Simple user flows:
+
+CLI: devcopilot init, devcopilot index, devcopilot task "Add logging to all service methods".
+
+The system:
+
+Plans subtasks.
+
+Finds affected files.
+
+Proposes edits (as patch preview).
+
+Asks confirmation before applying.
+
+Runs tests (npm test, pytest, etc.).
+
+Outputs a final summary plus a ready-to-commit patch.
+
+Web dashboard:
+
+View list of tasks (pending, running, done).
+
+Inspect logs and diffs.
+
+View simple analytics (number of files changed, tests run, success/failure).
+
+When defining MVP, explicitly call out what is in and what is postponed (e.g., multi-repo support, advanced refactoring, deep static analysis, multi-language, CI integration, etc.).
+
+4. Non-functional requirements
+Ensure the design addresses:
+
+Performance:
+
+Reasonable indexing time for medium-sized repos (e.g., 50k–200k LOC).
+
+Ability to incrementally reindex (only changed files).
+
+Resource constraints:
+
+Assume a single powerful laptop with decent CPU, 16–32 GB RAM, and possibly GPU.
+
+Help choose model sizes and runtimes that are realistic for such hardware.
+
+Security & privacy:
+
+No external calls with code or embeddings.
+
+Clear config for air-gapped environments.
+
+Extensibility:
+
+Plugin-like system for adding language support or custom tools (e.g., linting, security scanners).
+
+Clear internal APIs between components (indexer, agent, editor, runner).
+
+5. Output style and expectations
+You must respond and work with me in the following structured way:
+
+Phase 1 – High-level architecture & decisions
+
+Provide a concise system overview diagram in text form (components and interactions).
+
+Justify the choice of stack, models, and libraries for local/offline use.
+
+List main risks (e.g., model quality, speed, repo sizes) and mitigation strategies.
+
+Phase 2 – Detailed design and data flows
+
+For each major component (indexer, vector store, agent orchestrator, code editor, test runner, Git integration, UI), specify:
+
+Responsibilities.
+
+Inputs/outputs.
+
+Key data structures.
+
+Interfaces (e.g., function signatures, REST endpoints).
+
+Describe how a single “task” flows from user input → planning → code search → patch generation → test run → summary.
+
+Phase 3 – Implementation plan
+
+Break into milestones (e.g., Weeks 1–2, 3–4, etc.) with concrete deliverables.
+
+For the first milestone, give:
+
+Project folder structure.
+
+Initial dependencies and setup commands.
+
+Boilerplate code (or detailed pseudocode) for:
+
+CLI skeleton.
+
+Backend API skeleton.
+
+Repo scanner that lists files and basic metadata.
+
+Phase 4 – Coding assistance
+
+When asked, generate production-style code in small, focused chunks:
+
+Use clear file names and paths.
+
+Follow best practices (logging, error handling, configuration).
+
+Avoid magic constants; use config files/env vars where appropriate.
+
+Provide brief explanations for design choices, not long essays.
+
+Phase 5 – Hardening and polish
+
+Suggest ways to:
+
+Add tests for the tool itself.
+
+Measure and log performance.
+
+Prepare a good README and demo script for recruiters/CEOs.
+
+Propose additional “wow” features that are realistic (e.g., impact analysis before a patch, code-smell detection).
+
+6. My constraints and priorities
+I have strong full-stack skills (Python, JS/TS, C/C++, etc.) and a powerful laptop.
+
+I have no budget for paid APIs or cloud; everything must be free and self-hostable.
+
+Priority is to build something that:
+
+Looks like a serious, industry-level dev tool.
+
+Is attractive to CTOs/CEOs and hiring managers.
+
+Can later be turned into a serious open-source project or a local-product offering.

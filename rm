@@ -1,0 +1,264 @@
+toolName: todo_write
+            
+status: success
+          
+Todos updated: 3 items
+          
+**Phase 1 – Architecture & Decisions**
+
+- System Overview (text diagram):
+  - `CLI/TUI` → `Task Orchestrator (FastAPI)` → `Planner Agent` → `Indexer & Analyzer` → `Vector Store (FAISS)` → `Code Editor (Patch Engine)` → `Git Layer` → `Test Runner`
+  - `Web UI (React)` ↔ `Task Orchestrator (REST/WebSocket)` ↔ `Logs & Metrics (SQLite)`
+  - `Local LLM Runtime (Ollama)` ↔ `Planner/Editor/Verifier Agents`
+  - `Repo Scanner` → `Files/Symbols` → `Embeddings` → `Semantic Search`
+
+- Tech Stack Choices:
+  - Backend: `Python` with `FastAPI` for orchestration; built-ins for `sqlite3`, plus `pydantic` for models.
+  - LLM runtime: `Ollama` running `DeepSeek-Coder` 6.7B or `Code Llama` 7B; quantized `Q4_K_M` for CPU-friendly operation.
+  - Embeddings: `jina-embeddings-v2-base-code` via `sentence-transformers`, stored in `FAISS` for a simple local vector DB.
+  - Indexing: Python `ast` for Python-first MVP; later `tree-sitter` for multi-language.
+  - Vector store: `faiss-cpu` initially; optional `Qdrant` for larger scale.
+  - Git: Native `git` CLI via `subprocess` or `GitPython` for safer operations.
+  - Frontend: Minimal `React` + `Vite` or `Next.js`; defer if MVP is CLI-first.
+
+- Key Decisions:
+  - Single-language MVP: `Python` first to keep indexing simple with `ast`.
+  - Incremental indexing: File mtime hashing and per-file embeddings; reindex on change.
+  - Safety-first patching: Always generate preview diffs and require explicit apply.
+  - Offline-by-default: No external API calls; local-only model configs via env.
+
+- Risks & Mitigations:
+  - Model quality: Use prompt templates with code-aware context windows; support multiple local models; provide retry/fallback to smaller models for speed.
+  - Performance: Use quantized models; cache embeddings; shard indexing; limit context windows via semantic chunking.
+  - Repo sizes: Batched indexing, backpressure on UI, progress reporting; allow paused/resumed indexing.
+  - Windows support: Prefer pure-Python deps; validate `faiss-cpu` wheels; document CUDA optional.
+
+**Phase 2 – Component Design & Flows**
+
+- Indexer & Analyzer
+  - Responsibilities: Traverse repo, parse Python files, extract symbols, chunk code, compute embeddings, persist metadata.
+  - Inputs/Outputs:
+    - Input: `repo_path`, include/exclude patterns, `language=python`.
+    - Output: `files`, `symbols`, `chunks`, `embeddings`, `index_status`.
+  - Data Structures:
+    - `files(id, path, sha256, size, mtime, language)`
+    - `symbols(id, file_id, kind, name, start_line, end_line)`
+    - `chunks(id, file_id, start_line, end_line, text_hash)`
+    - `embeddings(id, chunk_id, vector[float])`
+  - Interfaces:
+    - `POST /index/start { repo_path }`
+    - `GET /index/status`
+    - `def scan_repo(repo_path) -> List[FileMeta]`
+    - `def extract_symbols(file_path) -> List[SymbolMeta]`
+    - `def embed_chunks(chunks) -> np.ndarray`
+
+- Vector/Semantic Search
+  - Responsibilities: KNN search over chunks/symbols; filter by path/language.
+  - Inputs/Outputs:
+    - Input: `query_text`, `top_k`, filters.
+    - Output: `hits` with `chunk_id`, `score`, `file_path`, `line_range`.
+  - Interfaces:
+    - `POST /search { query, top_k, filters }`
+    - `def search_embeddings(query_vec, top_k) -> List[Hit]`
+
+- Task Planner / Agent Orchestrator
+  - Responsibilities: Parse task, search context, create ordered subtasks, route to editing and verification.
+  - Inputs/Outputs:
+    - Input: `task.description`, `repo_state`.
+    - Output: `plan`, `affected_files`, `next_actions`.
+  - Interfaces:
+    - `POST /tasks { description }`
+    - `GET /tasks/{id}`
+    - `def plan_task(description) -> TaskPlan`
+
+- Code Editing Engine
+  - Responsibilities: Generate patches; enforce safety checks; format diffs; apply or stage.
+  - Inputs/Outputs:
+    - Input: `targets`, `instructions`, `context`.
+    - Output: `patch_preview`, `apply_result`.
+  - Interfaces:
+    - `POST /patches/preview`
+    - `POST /patches/apply`
+    - `def generate_patch(targets, intent) -> Patch`
+    - `def apply_patch(patch) -> ApplyResult`
+
+- Test Runner & Verifier
+  - Responsibilities: Run tests (`pytest`), collect results, attempt fixes within capped iterations.
+  - Inputs/Outputs:
+    - Input: `command` (default `pytest -q`), `max_iters`.
+    - Output: `test_summary`, `failures`, `next_fix_actions`.
+  - Interfaces:
+    - `POST /tests/run { command }`
+    - `GET /tests/{id}`
+    - `def parse_pytest_output(text) -> TestResult`
+
+- Git Integration
+  - Responsibilities: Branch creation, staging, committing, generating PR description.
+  - Inputs/Outputs:
+    - Input: `branch_name`, `patches`, `message`.
+    - Output: `commit_sha`, `pr_text`.
+  - Interfaces:
+    - `POST /git/branch { name }`
+    - `POST /git/commit { message }`
+    - `def create_branch(name) -> str`
+    - `def commit_all(message) -> str`
+    - `def generate_pr_description(plan, results) -> str`
+
+- UI & Logging
+  - Responsibilities: Show tasks, diffs, logs, metrics; stream task progress.
+  - Interfaces:
+    - `GET /logs/{task_id}`
+    - `WebSocket /tasks/stream`
+    - `metrics(task_count, files_changed, tests_run, success_rate)`
+
+- Task Flow
+  - User runs `devcopilot task "Add logging to all service methods"`.
+  - Orchestrator creates task, calls planner to break into subtasks.
+  - Planner queries vector search to find service files and relevant symbols.
+  - Editor generates patch previews and returns unified diff.
+  - User approves; patch applies; Git branch and commit created.
+  - Test runner executes `pytest`; verifier summarizes and retries small fixes if configured.
+  - Summarizer compiles final change log and PR description.
+
+**Phase 3 – Implementation Plan**
+
+- Milestones
+  - Weeks 1–2: CLI + backend skeleton, SQLite schema, repo scanner, basic indexing, embeddings, FAISS KNN.
+  - Weeks 3–4: Planner agent with prompt templates, patch engine for Python, diff previews, apply logic.
+  - Weeks 5–6: Test runner integration, verification loop, Git operations, task logs.
+  - Weeks 7–8: Web UI basics (tasks list, diffs, logs), metrics, polish.
+  - Weeks 9–12: Incremental indexing, performance tuning, multi-language groundwork via `tree-sitter`.
+
+- Folder Structure (initial)
+  - `devcopilot/`
+    - `cli/` (`main.py`)
+    - `server/` (`app.py`, `routes/`, `models/`)
+    - `indexer/` (`scanner.py`, `symbols.py`, `embedder.py`)
+    - `search/` (`faiss_store.py`)
+    - `editor/` (`patcher.py`, `diff.py`)
+    - `runner/` (`pytest_runner.py`)
+    - `git/` (`git_ops.py`)
+    - `utils/` (`config.py`, `logging.py`)
+    - `data/` (`db.sqlite`, `faiss.index`)
+  - `web/` (deferred)
+  - `tests/` (tool tests)
+
+- Dependencies & Setup
+  - `python -m venv .venv`
+  - `.venv\Scripts\activate`
+  - `pip install fastapi uvicorn pydantic sentence-transformers faiss-cpu gitpython`
+  - Optional: `pip install pytest rich`
+  - Install `Ollama` and pull a code model: `ollama pull deepseek-coder:6.7b`
+
+- CLI Skeleton (Python, minimal)
+  ```python
+  # devcopilot/cli/main.py
+  import argparse
+  from devcopilot.server.client import start_index, create_task
+
+  def main():
+      parser = argparse.ArgumentParser(prog="devcopilot")
+      sub = parser.add_subparsers(dest="cmd", required=True)
+
+      p_init = sub.add_parser("init")
+      p_init.add_argument("--repo", required=True)
+
+      p_index = sub.add_parser("index")
+      p_index.add_argument("--repo", required=True)
+
+      p_task = sub.add_parser("task")
+      p_task.add_argument("description")
+
+      args = parser.parse_args()
+
+      if args.cmd == "init":
+          print(f"Initialized at {args.repo}")
+      elif args.cmd == "index":
+          start_index(args.repo)
+      elif args.cmd == "task":
+          create_task(args.description)
+
+  if __name__ == "__main__":
+      main()
+  ```
+
+- Backend API Skeleton
+  ```python
+  # devcopilot/server/app.py
+  from fastapi import FastAPI
+  from pydantic import BaseModel
+
+  app = FastAPI()
+
+  class IndexReq(BaseModel):
+      repo_path: str
+
+  class TaskReq(BaseModel):
+      description: str
+
+  @app.post("/index/start")
+  def index_start(req: IndexReq):
+      return {"status": "started", "repo": req.repo_path}
+
+  @app.post("/tasks")
+  def tasks_create(req: TaskReq):
+      return {"id": 1, "status": "pending", "description": req.description}
+  ```
+
+- Repo Scanner (lists files + basic metadata)
+  ```python
+  # devcopilot/indexer/scanner.py
+  import os
+  import hashlib
+  from dataclasses import dataclass
+
+  @dataclass
+  class FileMeta:
+      path: str
+      sha256: str
+      size: int
+      mtime: float
+      language: str
+
+  def detect_language(path: str) -> str:
+      if path.endswith(".py"):
+          return "python"
+      return "unknown"
+
+  def file_hash(path: str) -> str:
+      h = hashlib.sha256()
+      with open(path, "rb") as f:
+          for chunk in iter(lambda: f.read(8192), b""):
+              h.update(chunk)
+      return h.hexdigest()
+
+  def scan_repo(root: str):
+      metas = []
+      for dirpath, _, filenames in os.walk(root):
+          for name in filenames:
+              p = os.path.join(dirpath, name)
+              lang = detect_language(p)
+              if lang == "unknown":
+                  continue
+              st = os.stat(p)
+              metas.append(FileMeta(
+                  path=p,
+                  sha256=file_hash(p),
+                  size=st.st_size,
+                  mtime=st.st_mtime,
+                  language=lang
+              ))
+      return metas
+  ```
+
+- What’s In vs Postponed
+  - In: Python indexing, embeddings, FAISS search, CLI, basic patching, tests, Git branch/commit, summaries.
+  - Postponed: Multi-language indexing (TypeScript, Java), advanced refactoring, CI pipelines, deep static analysis, PR auto-open across platforms, complex UI.
+
+**Next Steps**
+
+- Run the setup, scaffold the directories, and wire the CLI to the backend endpoints.
+- Implement embeddings with `sentence-transformers` and persist vectors to `FAISS`.
+- Add simple planner prompts and patch generation using your local model via `Ollama`.
+
+If you want, I can proceed to generate the concrete module files and wire up the endpoints next.
