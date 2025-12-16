@@ -161,6 +161,9 @@ def api_git_branch(repo_path: str = ".", name: str = "devcopilot-task"):
 def api_git_commit(repo_path: str = ".", message: str = "devcopilot change"):
     return commit_all(repo_path, message)
 
+@app.get("/git/branch/current")
+def api_git_branch_current(repo_path: str = "."):
+    return {"branch": current_branch(repo_path)}
 @app.post("/patch/preview")
 def api_patch_preview(req: PatchReq):
     return apply_patch_preview(req.repo_path, req.patch_text)
