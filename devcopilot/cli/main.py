@@ -1,5 +1,5 @@
 import argparse
-from devcopilot.server.client import start_index, create_task
+from devcopilot.server.client import start_index, create_task, current_branch
 
 def main():
     parser = argparse.ArgumentParser(prog="devcopilot")
@@ -14,6 +14,9 @@ def main():
     p_task = sub.add_parser("task")
     p_task.add_argument("description")
 
+    p_branch = sub.add_parser("branch")
+    p_branch.add_argument("--repo", default=".")
+
     args = parser.parse_args()
 
     if args.cmd == "init":
@@ -22,7 +25,8 @@ def main():
         print(start_index(args.repo).decode("utf-8"))
     elif args.cmd == "task":
         print(create_task(args.description).decode("utf-8"))
+    elif args.cmd == "branch":
+        print(current_branch(args.repo).decode("utf-8"))
 
 if __name__ == "__main__":
     main()
-
